@@ -27,28 +27,30 @@ topics_map = {}
 sent_video_ids = set()
 
 def fix_cookie_format():
-    """自動修復 cookies.txt 的格式，確保符合 Python cookiejar 嚴格的 Tab 分隔標準"""
+    """【強效版】自動清洗與重組 cookies.txt，徹底根絕格式錯誤"""
     if os.path.exists("cookies.txt"):
         try:
-            with open("cookies.txt", "r", encoding="utf-8") as f:
-                lines = f.readlines()
+            with open("cookies.txt", "r", encoding="utf-8", errors="ignore") as f:
+                content = f.read()
             
-            fixed_lines = []
+            content = content.replace("\r\n", "\n").replace("\r", "\n")
+            lines = content.split("\n")
+            
+            fixed_lines = ["# Netscape HTTP Cookie File\n"]
             for line in lines:
-                if line.strip().startswith("#"):
-                    fixed_lines.append(line)
-                else:
-                    parts = line.strip().split()
-                    if len(parts) >= 7:
-                        domain, flag, path, secure, expires, name = parts[:6]
-                        value = "\t".join(parts[6:])
-                        fixed_lines.append(f"{domain}\t{flag}\t{path}\t{secure}\t{expires}\t{name}\t{value}\n")
-                    else:
-                        fixed_lines.append(line)
-                        
+                stripped = line.strip()
+                if not stripped or stripped.startswith("#"):
+                    continue
+                
+                parts = stripped.split()
+                if len(parts) >= 7:
+                    domain, flag, path, secure, expires, name = parts[:6]
+                    value = "\t".join(parts[6:])
+                    fixed_lines.append(f"{domain}\t{flag}\t{path}\t{secure}\t{expires}\t{name}\t{value}\n")
+            
             with open("cookies.txt", "w", encoding="utf-8") as f:
                 f.writelines(fixed_lines)
-            print("🔧 【Cookie 修復】已成功將 cookies.txt 格式標準化。")
+            print("🔧 【Cookie 強效修復】已成功將 cookies.txt 重新標準化！")
         except Exception as e:
             print(f"⚠️ 【Cookie 修復失敗】: {e}")
 
@@ -108,7 +110,7 @@ def load_accounts(filename):
     return accounts
 
 async def clean_and_sync_topics(accounts):
-    """使用 Telethon 掃描群組所有話題，並印出詳細偵錯訊息"""
+    """使用 Telethon 掃描群組所有話題，並進行配對與清理重複話題"""
     print("\n🔍 【Debug 1】準備透過 Telethon 連線並掃描群組話题...")
     
     if not API_ID or not API_HASH or not SESSION_STRING:
@@ -197,7 +199,6 @@ async def ensure_topic_exists(bot: Bot, streamer_name: str) -> int:
             thread_id = topic.message_thread_id
             topics_map[streamer_name] = thread_id
             
-            # 保留即時儲存並 Push
             save_and_push_topic_immediately(streamer_name, thread_id)
             
             print(f"✨ 成功在群組中建立新話題：{topic_name} (ID: {thread_id})")
@@ -322,7 +323,7 @@ async def main():
         print("❌ 找不到 Telegram Bot Token")
         return
 
-    # 執行 Cookie 格式自動校正
+    # 執行強效 Cookie 格式自動清洗
     fix_cookie_format()
 
     bot = Bot(token=TELEGRAM_BOT_TOKEN)
