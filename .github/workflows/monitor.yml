@@ -31,8 +31,8 @@ jobs:
 
       - name: Create cookies.txt from Secret
         run: |
-          # 將 GitHub Secret 中的 Cookie還原為 cookies.txt
-          printf "%s" "${{ secrets.TIKTOK_COOKIES }}" > cookies.txt
+          # 將 GitHub Secret 中的 Cookie 還原為 cookies.txt，並自動清除換行符號避免格式報錯
+          echo "${{ secrets.COOKIES_CONTENT }}" | tr -d '\r' > cookies.txt
 
       - name: Run monitor script
         env:
@@ -62,4 +62,3 @@ jobs:
           
           git add sent_history.txt topics_map.json
           git diff --quiet && git diff --staged --quiet || (git commit -m "🤖 Auto-update sent history and topics map" && git push)
-
