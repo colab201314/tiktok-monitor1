@@ -26,6 +26,32 @@ TOPICS_FILE = "topics_map.json"
 topics_map = {}
 sent_video_ids = set()
 
+def fix_cookie_format():
+    """自動修復 cookies.txt 的格式，確保符合 Python cookiejar 嚴格的 Tab 分隔標準"""
+    if os.path.exists("cookies.txt"):
+        try:
+            with open("cookies.txt", "r", encoding="utf-8") as f:
+                lines = f.readlines()
+            
+            fixed_lines = []
+            for line in lines:
+                if line.strip().startswith("#"):
+                    fixed_lines.append(line)
+                else:
+                    parts = line.strip().split()
+                    if len(parts) >= 7:
+                        domain, flag, path, secure, expires, name = parts[:6]
+                        value = "\t".join(parts[6:])
+                        fixed_lines.append(f"{domain}\t{flag}\t{path}\t{secure}\t{expires}\t{name}\t{value}\n")
+                    else:
+                        fixed_lines.append(line)
+                        
+            with open("cookies.txt", "w", encoding="utf-8") as f:
+                f.writelines(fixed_lines)
+            print("🔧 【Cookie 修復】已成功將 cookies.txt 格式標準化。")
+        except Exception as e:
+            print(f"⚠️ 【Cookie 修復失敗】: {e}")
+
 def load_topics_map():
     global topics_map
     if os.path.exists(TOPICS_FILE):
@@ -78,7 +104,7 @@ def load_accounts(filename):
                 if username and not username.startswith("#"):
                     clean_name = username.replace("@", "")
                     accounts.append(clean_name)
-    print(f"📋 從 {filename} 載入了以下主播名單: {accounts}")
+    print(f"📋 從 {filename} 載入了以下主播名單: 總計 {len(accounts)} 個帳號")
     return accounts
 
 async def clean_and_sync_topics(accounts):
@@ -128,8 +154,6 @@ async def clean_and_sync_topics(accounts):
                 await client.disconnect()
                 return
 
-        print(f"📋 【Debug】群組內現有的所有話題清單: {raw_topics}")
-
         title_to_ids = {}
         for tid, title in raw_topics.items():
             if title not in title_to_ids:
@@ -142,7 +166,6 @@ async def clean_and_sync_topics(accounts):
                 tids = sorted(title_to_ids[topic_name])
                 earliest_tid = tids[0]
                 topics_map[streamer_name] = earliest_tid
-                print(f"🔗 【配對成功】主播 【{streamer_name}】 對應到現有話題 ID: {earliest_tid}")
 
                 if len(tids) > 1:
                     print(f"🧹 發現主播 【{streamer_name}】 有 {len(tids)} 個重複話題，保留最早的 ID [{earliest_tid}]，正在刪除多餘話題...")
@@ -152,12 +175,9 @@ async def clean_and_sync_topics(accounts):
                                 channel=entity,
                                 topic_id=dup_tid
                             ))
-                            print(f"  🗑️ 已刪除重複話題 ID: {dup_tid}")
                             await asyncio.sleep(1.0)
                         except Exception as del_err:
                             print(f"  ⚠️ 刪除話題失敗 (ID: {dup_tid}): {del_err}")
-            else:
-                print(f"📌 【未找到】群組內找不到名為 【{streamer_name}】 的話題，後續將由 Bot 建立。")
 
         save_topics_map()
         print("✅ 【Debug】話題掃描流程結束。\n")
@@ -177,6 +197,7 @@ async def ensure_topic_exists(bot: Bot, streamer_name: str) -> int:
             thread_id = topic.message_thread_id
             topics_map[streamer_name] = thread_id
             
+            # 保留即時儲存並 Push
             save_and_push_topic_immediately(streamer_name, thread_id)
             
             print(f"✨ 成功在群組中建立新話題：{topic_name} (ID: {thread_id})")
@@ -194,7 +215,7 @@ def get_tiktok_videos(streamer_name, limit=3):
     ydl_opts = {
         'extract_flat': True,
         'quiet': True,
-        'cookiefile': 'cookies.txt',  # 引入 Cookie 檔案以避開反爬蟲限制
+        'cookiefile': 'cookies.txt',
         'http_headers': {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
             'Referer': 'https://www.tiktok.com/',
@@ -233,7 +254,7 @@ async def download_and_send_video(bot: Bot, thread_id: int, video_url: str, titl
         'outtmpl': file_path,
         'format': 'best',
         'quiet': True,
-        'cookiefile': 'cookies.txt',  # 下載時同樣引入 Cookie
+        'cookiefile': 'cookies.txt',
         'http_headers': {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
             'Referer': 'https://www.tiktok.com/',
@@ -301,6 +322,9 @@ async def main():
         print("❌ 找不到 Telegram Bot Token")
         return
 
+    # 執行 Cookie 格式自動校正
+    fix_cookie_format()
+
     bot = Bot(token=TELEGRAM_BOT_TOKEN)
     load_history()
     load_topics_map()
@@ -319,7 +343,7 @@ async def main():
         await ensure_topic_exists(bot, streamer_name)
 
     now_utc = datetime.now(timezone.utc)
-    five_hours_ago = now_utc - timedelta(hours=5)  # 配合 4 小時排程，時間窗放寬至 5 小時以防排程延遲漏抓
+    five_hours_ago = now_utc - timedelta(hours=5)
 
     for streamer_name in accounts:
         thread_id = topics_map.get(streamer_name)
@@ -337,7 +361,7 @@ async def main():
                 if v_timestamp:
                     upload_dt = datetime.fromtimestamp(v_timestamp, tz=timezone.utc)
                     upload_time_str = upload_dt.astimezone().strftime('%Y-%m-%d %H:%M:%S')
-                    if upload_dt < five_hours_ago:  # 超過 5 小時前的舊影片略過
+                    if upload_dt < five_hours_ago:
                         sent_video_ids.add(v_id)
                         save_history_id(v_id)
                         continue
